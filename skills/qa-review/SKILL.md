@@ -63,19 +63,34 @@ rm -f "$QA_PROMPT_FILE"
 
 **Success criteria**: Reviewer completes and output is captured.
 
-### 4. Present Findings
+### 4. Parse the Verdict
+Check the reviewer output for the `QA_VERDICT` line:
+
+```bash
+QA_VERDICT=$(grep -o 'QA_VERDICT: \(PASS\|FAIL\)' /tmp/qa-review-output.log | tail -1)
+```
+
+- **PASS** — no critical issues. Changes are safe to commit.
+- **FAIL** — critical issues found. Changes should NOT be committed until fixed.
+
+If no verdict line is found, treat as FAIL (reviewer may have hit a context limit).
+
+**Success criteria**: Binary PASS/FAIL verdict extracted.
+
+### 5. Present Findings
 Read the reviewer output and present to the user organized by severity:
 
+- **QA Verdict** — prominently display PASS or FAIL at the top
 - **Critical Issues** — highlight these prominently, recommend immediate action
 - **Warnings** — list with context on why they matter
 - **Suggestions** — summarize briefly
-- **Overall Assessment** — the reviewer's ship/no-ship verdict
+- **Overall Assessment** — the reviewer's narrative summary
 
-If there are Critical findings, recommend the user address them before merging.
+If the verdict is FAIL, recommend the user address Critical findings before committing.
 
 **Success criteria**: User has a clear, actionable summary of the review.
 
-### 5. Optional: Route Fixes
+### 6. Optional: Route Fixes
 If the user wants to fix the findings:
 - Create a task list from Critical and Warning items
 - Address each finding, re-running the affected tests

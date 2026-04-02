@@ -41,7 +41,7 @@ Bugs caught include sign convention errors (model learning backwards), silent da
 
 ### 1. Choose Your Reviewer Model
 
-This plugin is tool-agnostic. You need any AI model accessible via CLI that accepts piped input. See `CONNECTORS.md` for options.
+This plugin is tool-agnostic. You need any AI model accessible via CLI that accepts a prompt argument. See `CONNECTORS.md` for options.
 
 **Recommended:** Gemini CLI (free, fast, different vendor from Claude)
 ```bash
@@ -63,19 +63,21 @@ customize dual-model-qa
 
 The `/overnight` command needs a launcher script that runs your primary AI autonomously. See `skills/critique-loop/references/implementation-guide.md` for a reference implementation.
 
-## The CQ Loop
+## The Three-Phase Pipeline
 
 ```
-Primary AI (builds) → git diff → Reviewer AI (critiques) → Human gate (decides)
+Phase 1: Builder AI (builds/fixes, does NOT commit)
+    ↓
+Phase 2: Reviewer AI (reviews uncommitted diff) → QA_VERDICT: PASS or FAIL
+    ↓
+Phase 3: Auto-commit + optional deploy (only if PASS)
 ```
 
-1. **Primary AI** proposes code changes with full project context
-2. Changes are captured as a **git diff**
-3. **Reviewer AI** (different vendor) receives the diff with a structured severity prompt
-4. Findings tagged as **Critical** (must fix), **Warning** (should fix), **Suggestion** (nice to have)
-5. **Human gate** reviews findings and approves or blocks
+1. **Phase 1 — Build**: Primary AI makes changes, runs tests, stages files. The launcher appends "Do NOT commit or deploy" to the prompt.
+2. **Phase 2 — Review**: Reviewer AI (different vendor) receives the uncommitted diff with a structured severity prompt. Findings tagged as **Critical** (must fix), **Warning** (should fix), **Suggestion** (nice to have). Must end with `QA_VERDICT: PASS` or `QA_VERDICT: FAIL`.
+3. **Phase 3 — Commit Gate**: If PASS, auto-commits with a descriptive message. If the prompt contained "deploy", also deploys. If FAIL, changes stay uncommitted and you get an alert.
 
-Critical findings block promotion. The human always has final say.
+Only Critical issues trigger FAIL — warnings and suggestions still PASS. The human reviews findings the next morning and has final say on overrides.
 
 ## Usage Examples
 

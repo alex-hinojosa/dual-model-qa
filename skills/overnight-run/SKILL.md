@@ -15,7 +15,13 @@ Launch autonomous AI coding sessions that automatically get an independent QA re
 ## Pipeline
 
 ```
-Primary AI (builds/fixes) → git diff → ~~reviewer-cli (QA review) → logs + notification
+Phase 1: Primary AI (builds/fixes, does NOT commit)
+    ↓
+Phase 2: ~~reviewer-cli reviews uncommitted diff → QA_VERDICT: PASS or FAIL
+    ↓
+Phase 3 (PASS only): Auto-commit + optional deploy → logs + notification
+    ↓
+Phase 3 (FAIL): Changes stay uncommitted → alert + QA log → human reviews in morning
 ```
 
 ## Inputs
@@ -39,11 +45,11 @@ Read any project-level configuration (CLAUDE.md, rules files) to understand the 
 Wrap the user's prompt with safety context:
 
 Prepend: "Read CLAUDE.md and any project context files before starting."
-Append: "When finished, commit your changes with a descriptive message. Do NOT deploy unless explicitly instructed."
+Append: "Do NOT commit or deploy. Leave all changes uncommitted for QA review."
 
 This ensures the autonomous session:
 - Picks up project conventions
-- Commits work (so the QA diff can be computed)
+- Leaves changes uncommitted (so the QA step reviews a clean diff)
 - Does not deploy unreviewed code
 
 **Success criteria**: Prompt enhanced with safety bookends.
@@ -55,13 +61,12 @@ Execute the autonomous session using the project's launcher script:
 ./launcher.sh <project> '<enhanced-prompt>' --model sonnet
 ```
 
-The launcher handles:
-1. Recording git HEAD before the session
-2. Running the primary AI with auto-approval
-3. Computing the git diff after completion
-4. Piping the diff to ~~reviewer-cli with a structured QA prompt
-5. Logging both the session output and QA findings
-6. Sending a desktop notification on completion
+The launcher handles the three-phase pipeline:
+1. **Phase 1 — Build**: Runs the primary AI with auto-approval. Changes are NOT committed.
+2. **Phase 2 — QA**: Computes the uncommitted diff (excluding lockfiles, truncated at 2000 lines), sends it to ~~reviewer-cli with a structured QA prompt requesting a `QA_VERDICT: PASS` or `QA_VERDICT: FAIL`.
+3. **Phase 3 — Commit Gate**: If QA_VERDICT is PASS, auto-commits with a message derived from the prompt. If the original prompt contained "deploy", also runs deployment. If FAIL, changes stay uncommitted and user gets an alert.
+4. Logs both the session output and QA findings.
+5. Sends a desktop notification on completion.
 
 **Success criteria**: Session launched and running autonomously.
 
@@ -90,12 +95,16 @@ Tasks run sequentially. Each task gets its own QA review.
 ## Reading Results
 
 Next morning, check:
-1. **Session log** — full output of what the primary AI did
-2. **QA log** — the reviewer's severity-tagged findings
-3. **Git log** — commits made during the session
+1. **QA log** — look for `QA_VERDICT: PASS` or `QA_VERDICT: FAIL` first
+2. **Session log** — full output of what the primary AI did
+3. **Git log** — if QA passed, the auto-commit will be here with a descriptive message
+
+**If QA passed:** Changes are committed. Review the QA log for any Warnings or Suggestions worth addressing in a follow-up.
+
+**If QA failed:** Changes are uncommitted but present in the working tree. Review the Critical findings in the QA log, fix the issues, then either re-run the pipeline or manually commit.
 
 Priority order for reviewing QA findings:
-1. Any **Critical Issues** — address before merging
+1. Any **Critical Issues** — must fix (these caused the FAIL)
 2. **Warnings** — address soon or document why they're acceptable
 3. **Suggestions** — nice to have, batch for later
 

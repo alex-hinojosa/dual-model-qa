@@ -14,27 +14,42 @@ version: 0.1.0
 
 A proven framework for using two AI models from different vendors to validate code at every step. Different models have different training distributions, different attention patterns, and different blind spots — the CQ loop exploits this divergence to catch what neither model finds alone.
 
-## The Core Loop
+## The Three-Phase Pipeline
 
 ```
-Builder AI (proposes) → git diff → Reviewer AI (critiques) → Human gate (approves/blocks)
+Phase 1: Builder AI (builds/fixes, does NOT commit)
+    ↓
+Phase 2: Reviewer AI (reviews uncommitted diff) → QA_VERDICT: PASS or FAIL
+    ↓
+Phase 3: Auto-commit + optional deploy (only if PASS)
 ```
+
+### Phase 1 — Build
+
+**Builder AI** — the primary coding model. Proposes code, tests, and data transforms. Operates with full project context (CLAUDE.md, rules, codebase access). The launcher appends "Do NOT commit or deploy" to the prompt, so all changes stay uncommitted and reviewable.
+
+### Phase 2 — Review
+
+**Reviewer AI (from a different vendor)** — reviews the uncommitted diff for logic, security, data handling, and code quality. Receives the diff plus a structured QA prompt. Tags findings by severity and ends with a binary verdict:
+
+- **`QA_VERDICT: PASS`** — no critical issues found. Warnings and suggestions may still be present.
+- **`QA_VERDICT: FAIL`** — one or more critical issues detected (security, breaking changes, data loss). Changes must NOT be committed.
+
+The Reviewer does NOT have project context by default — this is a feature, not a bug. Fresh eyes see what familiar ones miss.
+
+### Phase 3 — Commit Gate
+
+If QA passed, the pipeline auto-commits with a message derived from the original prompt. If the word "deploy" appeared in the prompt, it also runs deployment (e.g., `gcloud run deploy`).
+
+If QA failed: changes stay uncommitted, the user gets an alert, and the QA log details what to fix. The human reviews the findings and decides whether to fix and re-run or override.
 
 ### Roles
 
-**Builder AI** — the primary coding model. Proposes code, tests, and data transforms. Operates with full project context (CLAUDE.md, rules, codebase access). Does the building.
+**Builder AI** — does the building. Never commits or deploys.
 
-**Reviewer AI (from a different vendor)** — reviews logic, security, data handling, and code quality. Receives the diff plus a structured QA prompt. Tags findings by severity. Does NOT have project context by default — this is a feature, not a bug. Fresh eyes see what familiar ones miss.
+**Reviewer AI** — does the reviewing. Must produce a `QA_VERDICT` line.
 
-**Human gate** — reviews the Reviewer's findings. Approves, blocks, or routes back to Builder for fixes. Critical-severity findings block promotion automatically.
-
-### The CQ Workflow
-
-1. Builder AI proposes changes (code, tests, data transforms)
-2. Changes are captured as a git diff
-3. Reviewer AI receives the diff with a structured prompt requesting severity-tagged findings
-4. Builder AI reviews the critique, implements fixes, documents corrections
-5. Human gate approves or blocks based on findings
+**Human gate** — reviews QA findings the next morning. Has final say on overrides.
 
 ## Severity Framework
 
@@ -60,6 +75,13 @@ Structure all QA output using these tiers:
 
 ### Overall Assessment
 One paragraph: is this safe to ship? Would you approve this PR?
+
+### QA Verdict (required)
+The final line of every review must be exactly one of:
+- `QA_VERDICT: PASS` — no critical issues. Warnings and suggestions are acceptable.
+- `QA_VERDICT: FAIL` — one or more critical issues found. Do not commit.
+
+Only **Critical Issues** trigger FAIL. Warnings and Suggestions alone still PASS.
 
 ## Why Two Models, Not One
 

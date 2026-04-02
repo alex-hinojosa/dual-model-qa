@@ -95,6 +95,7 @@ Place at `~/dev/Shared/claude-auto.sh` (or any location on PATH):
 ```bash
 #!/bin/bash
 # Usage: claude-auto.sh <project-dir> <prompt> [--model opus|sonnet] [--no-qa]
+# Three-phase pipeline: Build → QA → Commit Gate
 
 set -euo pipefail
 
@@ -121,14 +122,19 @@ QA_LOGFILE="$LOG_DIR/session_${TIMESTAMP}_qa.log"
 cd "$PROJECT_DIR"
 GIT_BEFORE=$(git rev-parse HEAD 2>/dev/null || echo "no-git")
 
-# Run primary AI
-claude --dangerously-skip-permissions --model "$MODEL" -p "$PROMPT" 2>&1 | tee -a "$LOGFILE"
+# ── Phase 1: Build (do NOT commit or deploy) ──
+BUILD_PROMPT="$PROMPT
+
+Do NOT commit or deploy. Leave all changes uncommitted for QA review."
+
+claude --dangerously-skip-permissions --model "$MODEL" -p "$BUILD_PROMPT" 2>&1 | tee -a "$LOGFILE"
 CLAUDE_EXIT=${PIPESTATUS[0]}
 
-# QA step
+# ── Phase 2: QA Review ──
+QA_PASSED=false
 if [ "$RUN_QA" = true ] && [ "$CLAUDE_EXIT" -eq 0 ] && [ "$GIT_BEFORE" != "no-git" ]; then
-  # Exclude lockfiles (noise for QA review)
-  DIFF=$(git diff "$GIT_BEFORE"..HEAD \
+  # Diff uncommitted changes, excluding lockfiles
+  DIFF=$(git diff \
     -- ':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' ':!*.lock' \
     2>/dev/null || echo "")
 
@@ -143,6 +149,8 @@ if [ "$RUN_QA" = true ] && [ "$CLAUDE_EXIT" -eq 0 ] && [ "$GIT_BEFORE" != "no-gi
 
   if [ -n "$DIFF" ]; then
     QA_PROMPT="You are a senior code reviewer... [see qa-prompt-template.md]
+End with QA_VERDICT: PASS or QA_VERDICT: FAIL.
+Only FAIL for critical issues (security, breaking changes, data loss).
 
 $DIFF"
     # Write to temp file to avoid piping issues and arg length limits
@@ -150,7 +158,34 @@ $DIFF"
     echo "$QA_PROMPT" > "$QA_PROMPT_FILE"
     gemini "$(cat "$QA_PROMPT_FILE")" -p 2>&1 | tee -a "$QA_LOGFILE" || true
     rm -f "$QA_PROMPT_FILE"
+
+    # Parse verdict
+    QA_VERDICT=$(grep -o 'QA_VERDICT: \(PASS\|FAIL\)' "$QA_LOGFILE" | tail -1 || echo "")
+    if [ "$QA_VERDICT" = "QA_VERDICT: PASS" ]; then
+      QA_PASSED=true
+    fi
+  else
+    QA_PASSED=true  # No diff = nothing to review
   fi
+elif [ "$RUN_QA" = false ]; then
+  QA_PASSED=true  # QA skipped by user
+fi
+
+# ── Phase 3: Commit Gate ──
+if [ "$QA_PASSED" = true ]; then
+  # Auto-commit with message derived from prompt
+  COMMIT_MSG=$(echo "$PROMPT" | head -c 72)
+  git add -A
+  git commit -m "$COMMIT_MSG" || true
+
+  # Deploy only if "deploy" appears in the original prompt
+  if echo "$PROMPT" | grep -qi "deploy"; then
+    gcloud run deploy 2>&1 | tee -a "$LOGFILE" || true
+  fi
+
+  osascript -e 'display notification "Build + QA complete. Changes committed." with title "Claude Auto" sound name "Glass"'
+else
+  osascript -e 'display notification "QA FAILED — changes NOT committed. Check QA log." with title "Claude Auto" sound name "Sosumi"'
 fi
 ```
 
@@ -161,6 +196,8 @@ fi
 
 ### Production hardening tips
 
+- **Three-phase gate**: Builder never commits. Reviewer produces a binary verdict. Commit only happens on PASS.
 - **Exclude lockfiles**: The `':!package-lock.json'` pathspec filters out lockfile noise that can be tens of thousands of lines
 - **Truncate large diffs**: The 2000-line guard prevents context window overflows in the reviewer model
 - **Temp file for prompt**: Avoids both shell argument length limits and the Gemini CLI piping bug ("Not enough arguments following: p")
+- **Conditional deploy**: Only triggers if "deploy" appears in the original prompt — overnight runs don't accidentally push to production
