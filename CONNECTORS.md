@@ -8,32 +8,36 @@ Plugin files use `~~category` as a placeholder for whatever tool the user connec
 
 | Category | Placeholder | Options |
 |----------|-------------|---------|
-| Reviewer CLI | `~~reviewer-cli` | Gemini CLI, GitHub Copilot CLI, Ollama, LM Studio, any CLI that accepts piped prompts |
+| Reviewer CLI | `~~reviewer-cli` | Gemini CLI, GitHub Copilot CLI, Ollama, LM Studio, any CLI that accepts a prompt argument |
 | Project tracker | `~~project tracker` | Jira, Linear, Asana, GitHub Issues |
 
 ## Reviewer CLI Setup
 
-The Dual-Model QA plugin sends code diffs to a second AI model for independent review. The reviewer model must accept prompts via stdin and output to stdout.
+The Dual-Model QA plugin sends code diffs to a second AI model for independent review. The plugin writes the prompt to a temp file, then passes it as a positional argument to the reviewer CLI.
 
 ### Gemini CLI (recommended)
 ```bash
-echo "review this code" | gemini -p
+gemini "review this code" -p
 ```
+**Note**: Gemini CLI expects the prompt as a positional argument, not piped stdin. The `-p` flag enables non-interactive mode.
 
 ### GitHub Copilot CLI
 ```bash
-echo "review this code" | gh copilot explain -
+gh copilot explain "review this code"
 ```
 
 ### Ollama (local models)
 ```bash
-echo "review this code" | ollama run codellama
+ollama run codellama "review this code"
 ```
 
 ### Custom / API-based
-Any CLI wrapper that reads stdin and writes to stdout works. The plugin calls:
+Any CLI wrapper that accepts a prompt argument works. The plugin calls:
 ```bash
-echo "$QA_PROMPT" | ~~reviewer-cli 2>&1
+QA_PROMPT_FILE=$(mktemp /tmp/qa-review-prompt-XXXXXX.txt)
+echo "$QA_PROMPT" > "$QA_PROMPT_FILE"
+~~reviewer-cli "$(cat "$QA_PROMPT_FILE")" 2>&1
+rm -f "$QA_PROMPT_FILE"
 ```
 
 Replace `~~reviewer-cli` with your actual command during plugin customization.

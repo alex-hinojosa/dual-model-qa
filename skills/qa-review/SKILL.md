@@ -50,11 +50,16 @@ Append the diff.
 **Success criteria**: Structured prompt ready to pipe to reviewer.
 
 ### 3. Dispatch to Reviewer
-Write the prompt to a temp file and pipe to ~~reviewer-cli:
+Write the prompt to a temp file, then pass it as a positional argument to ~~reviewer-cli:
 
 ```bash
-echo "$QA_PROMPT" | ~~reviewer-cli 2>&1 | tee /tmp/qa-review-output.log
+QA_PROMPT_FILE=$(mktemp /tmp/qa-review-prompt-XXXXXX.txt)
+echo "$QA_PROMPT" > "$QA_PROMPT_FILE"
+~~reviewer-cli "$(cat "$QA_PROMPT_FILE")" 2>&1 | tee /tmp/qa-review-output.log
+rm -f "$QA_PROMPT_FILE"
 ```
+
+**Important**: Most CLIs (Gemini, Ollama) expect the prompt as a positional argument, not piped stdin. Piping via `echo | cli` often fails with argument parsing errors. The temp-file approach avoids both piping issues and shell argument length limits.
 
 **Success criteria**: Reviewer completes and output is captured.
 

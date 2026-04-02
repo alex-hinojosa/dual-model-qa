@@ -10,13 +10,11 @@ How to set up the Dual-Model QA pipeline for different reviewer CLIs and environ
 
 ## Option 1: Gemini CLI (Recommended)
 
-Google's Gemini CLI is free, fast, and accepts piped prompts natively.
+Google's Gemini CLI is free, fast, and from a different vendor than Claude — ideal for cross-model review.
 
 ### Install
 ```bash
-npm install -g @anthropic-ai/gemini-cli
-# or
-brew install gemini-cli
+npm install -g @google/gemini-cli
 ```
 
 ### Authenticate
@@ -26,14 +24,19 @@ gemini auth login
 
 ### Test
 ```bash
-echo "Hello, what model are you?" | gemini -p
+gemini "Hello, what model are you?" -p
 ```
 
 ### Integration
-The plugin calls:
+The plugin writes the prompt to a temp file and passes it as a positional argument:
 ```bash
-echo "$QA_PROMPT" | gemini -p 2>&1
+QA_PROMPT_FILE=$(mktemp /tmp/gemini-qa-prompt-XXXXXX.txt)
+echo "$QA_PROMPT" > "$QA_PROMPT_FILE"
+gemini "$(cat "$QA_PROMPT_FILE")" -p 2>&1
+rm -f "$QA_PROMPT_FILE"
 ```
+
+**Important**: Gemini CLI expects the prompt as a positional argument followed by `-p` (non-interactive mode). Piping via `echo | gemini -p` fails with "Not enough arguments following: p". The temp-file approach also avoids shell argument length limits for large diffs.
 
 ## Option 2: Ollama (Local / Private)
 
@@ -99,14 +102,12 @@ PROJECT_DIR="$1"
 PROMPT="$2"
 MODEL="sonnet"
 RUN_QA=true
-REVIEWER_CMD="gemini -p"  # ← customize this
 
 shift 2
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --model) MODEL="$2"; shift 2 ;;
     --no-qa) RUN_QA=false; shift ;;
-    --reviewer) REVIEWER_CMD="$2"; shift 2 ;;
     *) shift ;;
   esac
 done
@@ -126,12 +127,29 @@ CLAUDE_EXIT=${PIPESTATUS[0]}
 
 # QA step
 if [ "$RUN_QA" = true ] && [ "$CLAUDE_EXIT" -eq 0 ] && [ "$GIT_BEFORE" != "no-git" ]; then
-  DIFF=$(git diff "$GIT_BEFORE"..HEAD 2>/dev/null || echo "")
+  # Exclude lockfiles (noise for QA review)
+  DIFF=$(git diff "$GIT_BEFORE"..HEAD \
+    -- ':!package-lock.json' ':!yarn.lock' ':!pnpm-lock.yaml' ':!*.lock' \
+    2>/dev/null || echo "")
+
+  # Truncate very large diffs to avoid context window limits
+  DIFF_LINES=$(echo "$DIFF" | wc -l)
+  if [ "$DIFF_LINES" -gt 2000 ]; then
+    DIFF=$(echo "$DIFF" | head -2000)
+    DIFF="$DIFF
+
+... [TRUNCATED: diff was $DIFF_LINES lines, showing first 2000]"
+  fi
+
   if [ -n "$DIFF" ]; then
     QA_PROMPT="You are a senior code reviewer... [see qa-prompt-template.md]
 
 $DIFF"
-    echo "$QA_PROMPT" | $REVIEWER_CMD 2>&1 | tee -a "$QA_LOGFILE"
+    # Write to temp file to avoid piping issues and arg length limits
+    QA_PROMPT_FILE=$(mktemp /tmp/gemini-qa-prompt-XXXXXX.txt)
+    echo "$QA_PROMPT" > "$QA_PROMPT_FILE"
+    gemini "$(cat "$QA_PROMPT_FILE")" -p 2>&1 | tee -a "$QA_LOGFILE" || true
+    rm -f "$QA_PROMPT_FILE"
   fi
 fi
 ```
@@ -140,4 +158,9 @@ fi
 
 - `--no-qa` — skip the reviewer step (for docs-only or config changes)
 - `--model opus` — use a stronger primary model for complex tasks
-- `--reviewer "ollama run codellama"` — override the reviewer CLI
+
+### Production hardening tips
+
+- **Exclude lockfiles**: The `':!package-lock.json'` pathspec filters out lockfile noise that can be tens of thousands of lines
+- **Truncate large diffs**: The 2000-line guard prevents context window overflows in the reviewer model
+- **Temp file for prompt**: Avoids both shell argument length limits and the Gemini CLI piping bug ("Not enough arguments following: p")
