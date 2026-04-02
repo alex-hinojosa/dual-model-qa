@@ -1,0 +1,10 @@
+{
+  "name": "dual-model-qa",
+  "version": "0.1.0",
+  "description": "Dual-Model QA: use a second AI model to automatically review code produced by your primary AI, catching blind spots neither model finds alone. Based on the Dual-AI Continuous Critique (CQ) methodology.",
+  "author": {
+    "name": "Alex Hinojosa",
+    "homepage": "https://alexanderhinojosa.com"
+  },
+  "keywords": ["qa", "code-review", "dual-model", "autonomous", "overnight", "critique-loop"]
+}
