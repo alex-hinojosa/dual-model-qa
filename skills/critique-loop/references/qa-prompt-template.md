@@ -85,11 +85,13 @@ QA_PROMPT=$(cat <<EOF
 $DIFF
 EOF
 )
-QA_PROMPT_FILE=$(mktemp /tmp/qa-review-prompt-XXXXXX.txt)
+QA_PROMPT_FILE=$(mktemp /tmp/qa-review-prompt-XXXXXXXX)
 echo "$QA_PROMPT" > "$QA_PROMPT_FILE"
 ~~reviewer-cli "$(cat "$QA_PROMPT_FILE")" 2>&1
 rm -f "$QA_PROMPT_FILE"
 ```
+
+**For Gemini CLI**: use `gemini -y -p "$(cat "$QA_PROMPT_FILE")"` — the `-y` flag is required.
 
 ### Parsing the Verdict
 

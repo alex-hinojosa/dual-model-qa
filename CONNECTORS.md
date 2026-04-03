@@ -17,9 +17,9 @@ The Dual-Model QA plugin sends code diffs to a second AI model for independent r
 
 ### Gemini CLI (recommended)
 ```bash
-gemini "review this code" -p
+gemini -y -p "review this code"
 ```
-**Note**: Gemini CLI expects the prompt as a positional argument, not piped stdin. The `-p` flag enables non-interactive mode.
+**Note**: Gemini CLI requires `-y` (auto-approve tools) and `-p` (non-interactive) flags. Without `-y`, headless mode blocks tool execution at runtime.
 
 ### GitHub Copilot CLI
 ```bash
@@ -34,7 +34,7 @@ ollama run codellama "review this code"
 ### Custom / API-based
 Any CLI wrapper that accepts a prompt argument works. The plugin calls:
 ```bash
-QA_PROMPT_FILE=$(mktemp /tmp/qa-review-prompt-XXXXXX.txt)
+QA_PROMPT_FILE=$(mktemp /tmp/qa-review-prompt-XXXXXXXX)
 echo "$QA_PROMPT" > "$QA_PROMPT_FILE"
 ~~reviewer-cli "$(cat "$QA_PROMPT_FILE")" 2>&1
 rm -f "$QA_PROMPT_FILE"

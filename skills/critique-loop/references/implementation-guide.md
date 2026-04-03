@@ -5,7 +5,7 @@ How to set up the Dual-Model QA pipeline for different reviewer CLIs and environ
 ## Prerequisites
 
 - A primary AI coding tool (Claude Code, Cursor, Copilot, etc.)
-- A second AI model accessible via CLI that accepts piped input
+- A second AI model accessible via CLI that accepts a prompt argument
 - Git installed (the pipeline diffs committed changes)
 
 ## Option 1: Gemini CLI (Recommended)
@@ -24,19 +24,22 @@ gemini auth login
 
 ### Test
 ```bash
-gemini "Hello, what model are you?" -p
+gemini -y -p "Hello, what model are you?"
 ```
 
 ### Integration
 The plugin writes the prompt to a temp file and passes it as a positional argument:
 ```bash
-QA_PROMPT_FILE=$(mktemp /tmp/gemini-qa-prompt-XXXXXX.txt)
+QA_PROMPT_FILE=$(mktemp /tmp/gemini-qa-prompt-XXXXXXXX)
 echo "$QA_PROMPT" > "$QA_PROMPT_FILE"
-gemini "$(cat "$QA_PROMPT_FILE")" -p 2>&1
+gemini -y -p "$(cat "$QA_PROMPT_FILE")" 2>&1
 rm -f "$QA_PROMPT_FILE"
 ```
 
-**Important**: Gemini CLI expects the prompt as a positional argument followed by `-p` (non-interactive mode). Piping via `echo | gemini -p` fails with "Not enough arguments following: p". The temp-file approach also avoids shell argument length limits for large diffs.
+**Important — three gotchas discovered in production:**
+1. **Positional argument, not pipe**: Gemini CLI expects the prompt as a positional argument. Piping via `echo | gemini -p` fails with "Not enough arguments following: p".
+2. **`-y` flag required for headless mode**: Without `-y` (yolo/auto-approve), Gemini's `-p` mode blocks tools that need approval (like `run_shell_command`). The tool exists in Gemini's system prompt but fails at runtime with "Tool not found" unless `-y` is passed.
+3. **macOS mktemp suffix**: `mktemp` on macOS requires the template to end with `X`s only — no `.txt` suffix. `mktemp /tmp/foo-XXXXXX.txt` fails silently or creates a literal `XXXXXX.txt` file, crashing any script with `set -euo pipefail`.
 
 ## Option 2: Ollama (Local / Private)
 
@@ -154,9 +157,9 @@ Only FAIL for critical issues (security, breaking changes, data loss).
 
 $DIFF"
     # Write to temp file to avoid piping issues and arg length limits
-    QA_PROMPT_FILE=$(mktemp /tmp/gemini-qa-prompt-XXXXXX.txt)
+    QA_PROMPT_FILE=$(mktemp /tmp/gemini-qa-prompt-XXXXXXXX)
     echo "$QA_PROMPT" > "$QA_PROMPT_FILE"
-    gemini "$(cat "$QA_PROMPT_FILE")" -p 2>&1 | tee -a "$QA_LOGFILE" || true
+    gemini -y -p "$(cat "$QA_PROMPT_FILE")" 2>&1 | tee -a "$QA_LOGFILE" || true
     rm -f "$QA_PROMPT_FILE"
 
     # Parse verdict
@@ -200,4 +203,6 @@ fi
 - **Exclude lockfiles**: The `':!package-lock.json'` pathspec filters out lockfile noise that can be tens of thousands of lines
 - **Truncate large diffs**: The 2000-line guard prevents context window overflows in the reviewer model
 - **Temp file for prompt**: Avoids both shell argument length limits and the Gemini CLI piping bug ("Not enough arguments following: p")
+- **`-y` flag on Gemini**: Required for headless mode tool access. Without it, `-p` mode blocks tools like `run_shell_command` even though they appear in Gemini's system prompt.
+- **macOS mktemp**: Template must end with `X`s only — no `.txt` suffix. Use `mktemp /tmp/prefix-XXXXXXXX` not `mktemp /tmp/prefix-XXXXXX.txt`.
 - **Conditional deploy**: Only triggers if "deploy" appears in the original prompt — overnight runs don't accidentally push to production

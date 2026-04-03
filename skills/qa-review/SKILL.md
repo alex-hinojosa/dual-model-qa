@@ -53,13 +53,16 @@ Append the diff.
 Write the prompt to a temp file, then pass it as a positional argument to ~~reviewer-cli:
 
 ```bash
-QA_PROMPT_FILE=$(mktemp /tmp/qa-review-prompt-XXXXXX.txt)
+QA_PROMPT_FILE=$(mktemp /tmp/qa-review-prompt-XXXXXXXX)
 echo "$QA_PROMPT" > "$QA_PROMPT_FILE"
 ~~reviewer-cli "$(cat "$QA_PROMPT_FILE")" 2>&1 | tee /tmp/qa-review-output.log
 rm -f "$QA_PROMPT_FILE"
 ```
 
-**Important**: Most CLIs (Gemini, Ollama) expect the prompt as a positional argument, not piped stdin. Piping via `echo | cli` often fails with argument parsing errors. The temp-file approach avoids both piping issues and shell argument length limits.
+**Important — production gotchas:**
+- Most CLIs (Gemini, Ollama) expect the prompt as a positional argument, not piped stdin.
+- macOS `mktemp` requires templates to end with `X`s only — no `.txt` suffix or it fails silently.
+- For Gemini CLI specifically, use `-y -p` flags (yolo + non-interactive). Without `-y`, headless mode blocks tools like `run_shell_command` at runtime.
 
 **Success criteria**: Reviewer completes and output is captured.
 

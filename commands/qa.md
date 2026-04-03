@@ -22,13 +22,15 @@ Build the QA prompt using the template at `${CLAUDE_PLUGIN_ROOT}/skills/critique
 - Task description from recent git log messages
 - The captured diff
 
-Dispatch to ~~reviewer-cli using a temp file (avoids piping issues and argument length limits):
+Dispatch to ~~reviewer-cli using a temp file (avoids piping issues, macOS mktemp suffix bugs, and argument length limits):
 ```bash
-QA_PROMPT_FILE=$(mktemp /tmp/qa-review-prompt-XXXXXX.txt)
+QA_PROMPT_FILE=$(mktemp /tmp/qa-review-prompt-XXXXXXXX)
 echo "$QA_PROMPT" > "$QA_PROMPT_FILE"
 ~~reviewer-cli "$(cat "$QA_PROMPT_FILE")" 2>&1 | tee /tmp/qa-review-output.log
 rm -f "$QA_PROMPT_FILE"
 ```
+
+For Gemini CLI: use `gemini -y -p "$(cat ...)"` — the `-y` flag is required for tool access in headless mode.
 
 Present findings to the user organized by severity:
 1. **Critical Issues** — highlight prominently
